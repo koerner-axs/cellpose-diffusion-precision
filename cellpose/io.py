@@ -170,7 +170,7 @@ def get_image_files(folder, mask_filter, imf=None, look_one_level_down=False):
         al += len(all_files)
         for ext in exts:
             image_names.extend(glob.glob(folder + f'/*{imf}{ext}'))
-            image_names.extend(glob.glob(folder + f'/*{imf}{ext.upper()}'))
+            #image_names.extend(glob.glob(folder + f'/*{imf}{ext.upper()}'))
         l0 += len(image_names)
     
     # return error if no files found

@@ -5,7 +5,7 @@ import scipy.ndimage
 import numpy as np
 import tifffile
 from tqdm import trange
-from numba import njit, float32, int32, vectorize
+from numba import jit, njit, float32, int32, vectorize
 import cv2
 import fastremap
 
@@ -54,6 +54,21 @@ def _extend_centers(T,y,x,ymed,xmed,Lx, niter):
                                             T[(y+1)*Lx + x-1] + T[(y+1)*Lx + x+1])
     return T
 
+
+#@njit('(float64[:,:], int32[:], int32[:], int32, int32, int32, int32)', nogil=True)
+#@jit
+def _extend_centers_convolution(T: np.ndarray, object_y, object_x, ymed, xmed, Lx, niter):
+    #T = T.reshape((-1, Lx + 2))
+
+    kernel_size = 3
+    kernel = (kernel_size ** -2) * np.ones((kernel_size, kernel_size), dtype=np.float64)
+    for iteration in range(niter):
+        T[ymed, xmed] += 1
+        #T[object_y, object_x] = scipy.ndimage.correlate(T, kernel, mode='constant')[object_y, object_x]
+        T[object_y, object_x] = scipy.ndimage.gaussian_filter(T, sigma=3.0, mode='constant')[object_y, object_x]
+
+    #T = T.flatten()
+    return T
 
 
 def _extend_centers_gpu(neighbors, centers, isneighbor, Ly, Lx, n_iter=200, device=torch.device('cuda')):
@@ -189,7 +204,9 @@ def masks_to_flows_cpu(masks, device=None):
     mu_c = np.zeros((Ly, Lx), np.float64)
     
     nmask = masks.max()
+    print(f'The maximum of the mask is {masks.max()}. It has a minimum of {masks.min()}.')
     slices = scipy.ndimage.find_objects(masks)
+    print(f'Of the {nmask} many objects {len(slices)} many were detected!')
     dia = utils.diameters(masks)[0]
     s2 = (.15 * dia)**2
     for i,si in enumerate(slices):
@@ -209,13 +226,20 @@ def masks_to_flows_cpu(masks, device=None):
             mu_c[sr.start+y-1, sc.start+x-1] = np.exp(-d2/s2)
 
             niter = 2*np.int32(np.ptp(x) + np.ptp(y))
-            T = np.zeros((ly+2)*(lx+2), np.float64)
-            T = _extend_centers(T, y, x, ymed, xmed, np.int32(lx), np.int32(niter))
-            T[(y+1)*lx + x+1] = np.log1p(T[(y+1)*lx + x+1])
+            #T = np.zeros((ly+2)*(lx+2), np.float64)
+            T = np.zeros((ly+2, lx+2), np.float64)
+            T = _extend_centers_convolution(T, y, x, ymed, xmed, np.int32(lx), np.int32(niter))
+            #T = T.flatten()
+            #T[(y+1)*lx + x+1] = np.log1p(T[(y+1)*lx + x+1])
+            T[y, x] = np.log1p(T[y, x])
+            #T[y+1, x] = np.log(T[y+1, x], where=T[y+1, x] != 0)
 
-            dy = T[(y+1)*lx + x] - T[(y-1)*lx + x]
-            dx = T[y*lx + x+1] - T[y*lx + x-1]
-            mu[:, sr.start+y-1, sc.start+x-1] = np.stack((dy,dx))
+            dTdy = scipy.ndimage.sobel(T, axis=0, mode='constant')[y, x]
+            dTdx = scipy.ndimage.sobel(T, axis=1, mode='constant')[y, x]
+            mu[:, sr.start+y-1, sc.start+x-1] = np.stack((dTdy, dTdx))
+            #dy = T[(y+1)*lx + x] - T[(y-1)*lx + x]
+            #dx = T[y*lx + x+1] - T[y*lx + x-1]
+            #mu[:, sr.start+y-1, sc.start+x-1] = np.stack((dy,dx))
 
     mu /= (1e-20 + (mu**2).sum(axis=0)**0.5)
 
