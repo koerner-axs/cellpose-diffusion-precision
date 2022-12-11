@@ -163,20 +163,24 @@ def get_image_files(folder, mask_filter, imf=None, look_one_level_down=False):
         folders = natsorted(glob.glob(os.path.join(folder, "*/")))
     folders.append(folder)
     exts = ['.png', '.jpg', '.jpeg', '.tif', '.tiff']
-    l0 = 0
-    al = 0
+    total_file_count = 0
     for folder in folders:
         all_files = glob.glob(folder + '/*')
-        al += len(all_files)
+        total_file_count += len(all_files)
         for ext in exts:
             image_names.extend(glob.glob(folder + f'/*{imf}{ext}'))
-            #image_names.extend(glob.glob(folder + f'/*{imf}{ext.upper()}'))
-        l0 += len(image_names)
+            # glob apparently already behaves case-insensitively with to file extensions.
+            # Remove duplicates later (as is implemented) or remove the following line.
+            image_names.extend(glob.glob(folder + f'/*{imf}{ext.upper()}'))
+
+    # remove double counted image files
+    image_names = list(set(image_names))
+    image_file_count = len(image_names)
     
     # return error if no files found
-    if al==0:
+    if total_file_count == 0:
         raise ValueError('ERROR: no files in --dir folder ')
-    elif l0==0:
+    elif image_file_count == 0:
         raise ValueError("ERROR: no images in --dir folder with extensions '.png', '.jpg', '.jpeg', '.tif', '.tiff'")
 
     image_names = natsorted(image_names)
@@ -185,13 +189,13 @@ def get_image_files(folder, mask_filter, imf=None, look_one_level_down=False):
         imfile = os.path.splitext(im)[0]
         igood = all([(len(imfile) > len(mask_filter) and imfile[-len(mask_filter):] != mask_filter) or len(imfile) <= len(mask_filter) 
                         for mask_filter in mask_filters])
-        if len(imf)>0:
-            igood &= imfile[-len(imf):]==imf
+        if len(imf) > 0:
+            igood &= imfile[-len(imf):] == imf
         if igood:
             imn.append(im)
     image_names = imn
     
-    if len(image_names)==0:
+    if len(image_names) == 0:
         raise ValueError('ERROR: no images in --dir folder without _masks or _flows ending')
         
     return image_names
